@@ -21,6 +21,7 @@ Usage:
 
 import json
 import os
+import re
 import urllib.request
 import urllib.error
 from typing import Optional
@@ -51,6 +52,7 @@ TREASURY_10Y_URL = (
     "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
     "TextView?field_tdr_date_value={year}&type=daily_treasury_yield_curve"
 )
+TREASURY_ROW_RE = re.compile(r"^\d{2}/\d{2}/\d{4}\b")
 
 
 def preflight_report(require_fred: bool = False, require_edgar: bool = False) -> dict:
@@ -271,21 +273,29 @@ def get_treasury_10y_from_website(year: Optional[int] = None) -> dict:
     except urllib.error.URLError as e:
         return {"error": f"Treasury yield page request failed: {str(e)}"}
     
-    lines = [line.strip() for line in html.splitlines() if "/" in line and "N/A" in line]
+    lines = [line.strip() for line in html.splitlines() if TREASURY_ROW_RE.match(line.strip())]
     if not lines:
         return {"error": "Treasury yield page parse failed: no data rows found"}
     
-    latest = lines[-1].split()
-    if len(latest) < 10:
-        return {"error": "Treasury yield page parse failed: malformed row"}
+    latest = None
+    for raw in reversed(lines):
+        parts = raw.split()
+        if len(parts) < 14:
+            continue
+        # Current Treasury layout order is:
+        # Date 1 Mo 1.5 Mo 2 Mo 3 Mo 4 Mo 6 Mo 1 Yr 2 Yr 3 Yr 5 Yr 7 Yr 10 Yr 20 Yr 30 Yr
+        # So the 10Y yield is the third value from the end.
+        try:
+            candidate = float(parts[-3])
+            latest = (parts[0], candidate)
+            break
+        except ValueError:
+            continue
     
-    # Table layout places the 10Y yield near the end. Current Treasury page order is:
-    # Date ... 1 Mo 1.5 Mo 2 Mo 3 Mo 4 Mo 6 Mo 1 Yr 2 Yr 3 Yr 5 Yr 7 Yr 10 Yr 20 Yr 30 Yr
-    try:
-        date = latest[0]
-        value = float(latest[-3])
-    except (ValueError, IndexError):
+    if latest is None:
         return {"error": "Treasury yield page parse failed: 10Y value not extractable"}
+    
+    date, value = latest
     
     return {
         "series_id": "UST10Y",
