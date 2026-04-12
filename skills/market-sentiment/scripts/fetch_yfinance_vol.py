@@ -26,14 +26,30 @@ Also computes two composite ratios the skill cares about:
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import datetime
 
 try:
     import yfinance as yf
 except ImportError:
-    print(json.dumps({"error": "yfinance not installed. Run: pip install yfinance --break-system-packages --quiet"}))
-    sys.exit(1)
+    # Auto-install on first run. The skill is invoked from a Claude Code
+    # session where interactive pip prompts aren't possible, so we install
+    # silently and re-import. Falls back to a clear error if install fails.
+    sys.stderr.write("[fetch_yfinance_vol] yfinance not found, installing...\n")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--quiet",
+             "--break-system-packages", "yfinance"],
+            stdout=sys.stderr, stderr=sys.stderr,
+        )
+        import yfinance as yf  # noqa: F401
+    except Exception as e:
+        print(json.dumps({
+            "error": f"yfinance not installed and auto-install failed: {e}. "
+                     f"Run manually: {sys.executable} -m pip install yfinance --break-system-packages"
+        }))
+        sys.exit(1)
 
 
 DEFAULT_TICKERS = ["^VIX", "^VIX9D", "^VIX3M", "^SKEW", "GC=F", "HG=F", "^TNX", "^GVZ"]
