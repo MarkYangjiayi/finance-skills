@@ -14,6 +14,45 @@ description: >
 
 This skill turns raw financial data into equity-research-grade analysis. It mirrors the workflow used by professional sell-side and buy-side analysts: extract data, compute forensic quality metrics, assess working capital health, decompose margins and returns, check consensus and surprises, scan for red flags, and integrate into valuation.
 
+## First-Run Setup Contract
+
+This skill assumes the human owns credentials and package installation, but the agent must detect missing setup before doing substantive work. Do not wait for mid-analysis tool failures to discover missing dependencies.
+
+### Required Preflight
+
+Before Phase 1, the agent must run a short preflight check and report the result. At minimum, check:
+
+1. Whether `EODHD MCP` calls are responding for core endpoints
+2. Whether `FRED_API_KEY` is available if FRED will be used directly
+3. Whether `edgartools` is installed if SEC filing text or XBRL extraction is needed
+4. Whether the user's shell environment exposes any required API keys for direct script usage
+
+If any required dependency is missing, the agent should stop and tell the user exactly what is missing and which parts of the workflow are blocked. If only optional dependencies are missing, continue using fallbacks and note the reduced scope.
+
+### Required vs Optional Dependencies
+
+| Dependency | Status | Purpose | Fallback |
+|-----------|--------|---------|----------|
+| `EODHD MCP get_fundamentals_data` | Required | Market snapshot, valuation fields, earnings trends, insider/sentiment/news | Use SEC company facts for statements only; valuation/sentiment sections become partial |
+| `SEC company facts` or `edgartools` | Required for statement math | Authoritative financial statements and filing cross-checks | If both unavailable, stop: statement analysis is not reliable |
+| `FRED API` | Optional | Risk-free rate and macro context | Use U.S. Treasury daily yield curve data directly for `10Y` risk-free rate |
+| `edgartools` | Optional unless filing text is explicitly requested | Risk factors, filing text, 8-K/non-GAAP analysis, footnotes | Skip filing-text sections and note limitation |
+| `EODHD sentiment/news/insider endpoints` | Optional | Signals and narrative sections | Skip unavailable sections and label them unavailable |
+
+### Fallback Order
+
+Use this order consistently:
+
+1. `EODHD MCP` for market snapshot, valuation, consensus, insider, and sentiment data
+2. `SEC company facts` for annual and quarterly financial statements if EODHD statement payload is truncated, inconsistent, or unavailable
+3. `edgartools` for filing text, footnotes, risk factors, and non-GAAP reconciliation if installed
+4. `FRED API` for rates and macro if configured
+5. U.S. Treasury website for the `10Y` yield if FRED is unavailable
+
+### Agent Behavior Standard
+
+On first use, the agent should say what it is checking, run the preflight, then continue only with the data sources that are confirmed working. The user should not need to read this skill file to discover missing setup.
+
 ## Data Sources
 
 | Source | What it provides | How to access |
@@ -21,10 +60,26 @@ This skill turns raw financial data into equity-research-grade analysis. It mirr
 | **EODHD MCP** | Financial statements (IS/BS/CF quarterly+annual), valuation multiples, earnings history/trends, insider transactions, sentiment, news, historical prices, market cap | `eodhd-mcp:get_fundamentals_data`, `get_earnings_trends`, `get_insider_transactions`, `get_sentiment_data`, `get_company_news`, `get_historical_stock_prices`, `get_historical_market_cap` |
 | **FRED API** | Risk-free rates (DGS10, DGS2), credit spreads (BAA, AAA), GDP growth, CPI, Fed Funds Rate | HTTP calls to `https://api.stlouisfed.org/fred/series/observations` |
 | **edgartools** | Raw SEC filings (10-K, 10-Q, 8-K), XBRL data, footnotes, MD&A, risk factors, segment detail | Python: `from edgar import Company; Company(ticker).get_filings(form="10-K")` |
+| **SEC company facts API** | Authoritative annual and quarterly statement line items direct from SEC XBRL facts | HTTP: `https://data.sec.gov/api/xbrl/companyfacts/CIK<CIK>.json` with a proper User-Agent |
 
 ## Workflow Phases
 
 Run these phases in order. The user may request only specific phases — adapt accordingly. For a quick analysis, Phase 1-2 is sufficient. For a full deep dive, run all five.
+
+### Phase 0: Preflight & Source Selection
+
+**Goal**: Confirm which data sources actually work in the current environment before analysis begins.
+
+1. Run a preflight check using `scripts/data_fetch.py` helpers or equivalent shell checks.
+2. Confirm:
+   - `EODHD MCP` core call works
+   - `FRED_API_KEY` exists if direct FRED is needed
+   - `edgartools` import works if filing text work is needed
+   - shell API keys are present if any direct HTTP scripts rely on them
+3. Choose the statement source:
+   - use `EODHD` if full annual and quarterly statements are accessible and not truncated
+   - otherwise switch immediately to `SEC company facts`
+4. Tell the user what was confirmed, what is missing, and what fallbacks will be used.
 
 ### Phase 1: Data Extraction & Overview
 
@@ -38,7 +93,7 @@ Run these phases in order. The user may request only specific phases — adapt a
    - `Financials` → Income_Statement, Balance_Sheet, Cash_Flow (quarterly + yearly)
    - `Earnings` → History (actual vs estimate per quarter), Trend, Annual
 
-2. **Parse financial statements** — extract the last 3-5 years annual and 8 quarters of data from `Financials`. Key line items to extract:
+2. **Parse financial statements** — extract the last 3-5 years annual and 8 quarters of data from `Financials`. If the EODHD statement payload is truncated, inconsistent, or unavailable, switch to `SEC company facts` or `edgartools` XBRL data rather than trying to infer from incomplete output. Key line items to extract:
 
    Income Statement: `totalRevenue`, `costOfRevenue`, `grossProfit`, `operatingIncome`, `netIncome`, `ebitda`, `researchDevelopment`, `sellingGeneralAdministrative`, `interestExpense`, `incomeBeforeTax`, `incomeTaxExpense`
 
@@ -159,6 +214,7 @@ Compare ROIC to WACC. ROIC > WACC = economic value creation. Track the trend.
 #### DCF Valuation (simplified)
 
 1. Fetch risk-free rate from FRED (series: DGS10)
+   - If `FRED_API_KEY` is missing or FRED fails, use the U.S. Treasury daily yield curve page instead and cite the exact date used
 2. Get beta from EODHD fundamentals → `Highlights`
 3. Estimate cost of equity: `Rf + Beta × ERP` (use ERP ≈ 5%)
 4. WACC = (E/V × Ke) + (D/V × Kd × (1-t))
@@ -223,8 +279,9 @@ Present the analysis in this order (adapt depth to what the user requested):
 
 - EODHD tickers use format `SYMBOL.EXCHANGE` (e.g., `AAPL.US`, `TSLA.US`, `MSFT.US`). For non-US, use the appropriate exchange code (e.g., `.LSE`, `.AS`, `.PA`).
 - EODHD fundamentals costs 10 API calls per request — cache the response and extract all needed data from one call.
-- FRED API requires an API key passed as `&api_key=YOUR_KEY` — the user should have this configured.
+- FRED API requires an API key passed as `&api_key=YOUR_KEY`. If the key is missing, do not fail silently; use U.S. Treasury data for the `10Y` risk-free rate and note the fallback.
 - edgartools is a Python library (`pip install edgartools`). Use it for SEC filing text analysis. It requires setting a user-agent identity.
+- SEC company facts is the preferred fallback for financial statement extraction when EODHD statement data is too large, truncated, or unavailable.
 - For banks, use Praams bank-specific endpoints (`get_mp_praams_bank_balance_sheet_by_ticker`, `get_mp_praams_bank_income_statement_by_ticker`) instead of standard fundamentals — bank financials have fundamentally different structures.
 - All forensic ratios require at least 2 periods of data. If only 1 period is available, note this limitation.
 - Never provide investment advice. Present the analysis as factual information; remind the user that this is analytical output, not a buy/sell recommendation.

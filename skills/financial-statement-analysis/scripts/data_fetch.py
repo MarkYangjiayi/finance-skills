@@ -20,6 +20,7 @@ Usage:
 """
 
 import json
+import os
 import urllib.request
 import urllib.error
 from typing import Optional
@@ -45,6 +46,55 @@ FRED_SERIES = {
     "GDPC1": "Real GDP",
     "UNRATE": "Unemployment Rate",
 }
+
+TREASURY_10Y_URL = (
+    "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
+    "TextView?field_tdr_date_value={year}&type=daily_treasury_yield_curve"
+)
+
+
+def preflight_report(require_fred: bool = False, require_edgar: bool = False) -> dict:
+    """Check local prerequisites before the skill starts substantive work.
+    
+    This is intentionally lightweight: it checks whether shell-side prerequisites
+    are present and tells the caller what is required vs optional.
+    """
+    report = {
+        "environment": {
+            "FRED_API_KEY": bool(os.environ.get("FRED_API_KEY")),
+            "EODHD_API_KEY": bool(os.environ.get("EODHD_API_KEY")),
+            "API_TOKEN": bool(os.environ.get("API_TOKEN")),
+        },
+        "python_packages": {},
+        "required_missing": [],
+        "optional_missing": [],
+        "notes": [],
+    }
+    
+    try:
+        import edgar  # noqa: F401
+        report["python_packages"]["edgartools"] = True
+    except ImportError:
+        report["python_packages"]["edgartools"] = False
+        if require_edgar:
+            report["required_missing"].append("edgartools")
+        else:
+            report["optional_missing"].append("edgartools")
+    
+    if require_fred and not report["environment"]["FRED_API_KEY"]:
+        report["required_missing"].append("FRED_API_KEY")
+    elif not report["environment"]["FRED_API_KEY"]:
+        report["optional_missing"].append("FRED_API_KEY")
+        report["notes"].append("Use U.S. Treasury daily yield curve data as fallback for 10Y risk-free rate.")
+    
+    if not (report["environment"]["EODHD_API_KEY"] or report["environment"]["API_TOKEN"]):
+        report["notes"].append(
+            "Shell-side EODHD keys are not set. MCP-based EODHD tools may still work, "
+            "but direct script access to EODHD is unavailable."
+        )
+    
+    report["ok"] = len(report["required_missing"]) == 0
+    return report
 
 
 def fetch_fred_series(
@@ -114,6 +164,22 @@ def fetch_fred_series(
 def get_risk_free_rate(api_key: str) -> dict:
     """Get the current 10-Year Treasury yield (risk-free rate for WACC)."""
     return fetch_fred_series("DGS10", api_key)
+
+
+def get_risk_free_rate_with_fallback(api_key: Optional[str] = None) -> dict:
+    """Get the 10Y risk-free rate from FRED, falling back to the Treasury site.
+    
+    Returns a normalized dict with source metadata so the caller can cite it.
+    """
+    if api_key:
+        fred = get_risk_free_rate(api_key)
+        if "error" not in fred:
+            fred["source"] = "FRED"
+            return fred
+    
+    treasury = get_treasury_10y_from_website()
+    treasury["source"] = "U.S. Treasury website"
+    return treasury
 
 
 def get_treasury_yields(api_key: str) -> dict:
@@ -186,6 +252,47 @@ def get_macro_context(api_key: str) -> dict:
         indicators["inflation_yoy_pct"] = round(inflation_yoy, 2)
     
     return indicators
+
+
+def get_treasury_10y_from_website(year: Optional[int] = None) -> dict:
+    """Fetch the most recent 10Y yield from the U.S. Treasury daily yield curve page.
+    
+    This is a fallback when FRED is unavailable. The parser is intentionally simple
+    and designed for the Treasury table structure.
+    """
+    if year is None:
+        year = datetime.now().year
+    url = TREASURY_10Y_URL.format(year=year)
+    
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "finance-skills/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+    except urllib.error.URLError as e:
+        return {"error": f"Treasury yield page request failed: {str(e)}"}
+    
+    lines = [line.strip() for line in html.splitlines() if "/" in line and "N/A" in line]
+    if not lines:
+        return {"error": "Treasury yield page parse failed: no data rows found"}
+    
+    latest = lines[-1].split()
+    if len(latest) < 10:
+        return {"error": "Treasury yield page parse failed: malformed row"}
+    
+    # Table layout places the 10Y yield near the end. Current Treasury page order is:
+    # Date ... 1 Mo 1.5 Mo 2 Mo 3 Mo 4 Mo 6 Mo 1 Yr 2 Yr 3 Yr 5 Yr 7 Yr 10 Yr 20 Yr 30 Yr
+    try:
+        date = latest[0]
+        value = float(latest[-3])
+    except (ValueError, IndexError):
+        return {"error": "Treasury yield page parse failed: 10Y value not extractable"}
+    
+    return {
+        "series_id": "UST10Y",
+        "description": "10-Year Treasury yield from Treasury daily yield curve page",
+        "date": date,
+        "value": value,
+    }
 
 
 # =============================================================================
@@ -351,6 +458,8 @@ def get_xbrl_financials(ticker: str, form_type: str = "10-K") -> dict:
 if __name__ == "__main__":
     print("Data Fetch Helpers")
     print("=" * 50)
+    print("\nPreflight report:")
+    print(json.dumps(preflight_report(), indent=2))
     print("\nFRED Series available:")
     for sid, desc in FRED_SERIES.items():
         print(f"  {sid}: {desc}")
