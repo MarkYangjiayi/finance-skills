@@ -187,7 +187,16 @@ ALWAYS use this exact template. Do not improvise section ordering — the struct
 - **`scripts/fetch_yfinance_vol.py`** — Pulls VIX, VIX9D, VIX3M, SKEW, GC=F, HG=F, ^TNX via yfinance in one shot, returning the latest values and 3-year percentile ranks.
 - **`scripts/compute_composite.py`** — Takes a JSON blob of indicators and produces sign-aligned z-scores, tier averages, and the composite score. Usage: pipe the indicator JSON via stdin or pass `--input indicators.json`.
 
-Execute scripts with `python scripts/<name>.py`. They are self-contained and handle their own API authentication.
+Execute scripts with `python3 scripts/<name>.py` (use `python3`, not `python` — macOS system Python is only exposed as `python3`). They are self-contained and handle their own API authentication.
+
+### Prerequisites
+
+- `FRED_API_KEY` environment variable (free key at https://fred.stlouisfed.org/docs/api/api_key.html)
+- Python packages: `yfinance` is auto-installed on first run of `fetch_yfinance_vol.py`. `edgartools` must be installed manually if you use `fetch_13f.py`:
+  ```
+  python3 -m pip install --break-system-packages edgartools
+  ```
+- All other scripts rely only on the standard library + `numpy` (preinstalled on most systems).
 
 ## What this skill does NOT do
 

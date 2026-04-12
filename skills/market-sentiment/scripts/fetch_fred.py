@@ -86,7 +86,10 @@ def fetch_series(series_id: str, limit: int = 800):
         "limit": str(limit),
     }
     url = f"{FRED_BASE}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url, headers={"User-Agent": "market-sentiment-skill/1.0"})
+    # Note: FRED's edge (Akamai) silently stalls response bodies for some
+    # custom User-Agent strings, causing read timeouts. Using a curl-style UA
+    # or the urllib default works reliably. Do NOT set "market-sentiment-skill/1.0".
+    req = urllib.request.Request(url, headers={"User-Agent": "curl/8.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
         data = json.load(r)
     if "observations" not in data:
