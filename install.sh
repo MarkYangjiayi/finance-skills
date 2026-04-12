@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-TARGET="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+TARGET="${CODEX_SKILLS_DIR:-${CLAUDE_SKILLS_DIR:-$HOME/.codex/skills}}"
 SKILLS_DIR="$(cd "$(dirname "$0")/skills" && pwd)"
 
 if [ ! -d "$TARGET" ]; then
@@ -9,7 +9,7 @@ if [ ! -d "$TARGET" ]; then
   mkdir -p "$TARGET"
 fi
 
-if [ -z "$1" ]; then
+if [ "$#" -eq 0 ]; then
   # Install all skills
   count=0
   for d in "$SKILLS_DIR"/*/; do
