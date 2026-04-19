@@ -111,20 +111,26 @@ def main():
     prev_close = closes[-2] if len(closes) >= 2 else last_close
     pct_1d = round((last_close / prev_close - 1) * 100, 2) if prev_close else 0.0
 
-    # Window move: from first bar on/after args.start
-    window_start_idx = 0
+    # Window move: from first bar on/after args.start.
+    # If args.start is a weekend/holiday and no bar meets the condition, fall back
+    # to the closest bar before args.start rather than silently using index 0
+    # (which would be the oldest bar in the 52w dataset and produce a misleading move).
+    window_start_idx = None
     for i, d in enumerate(dates):
         if d >= args.start:
             window_start_idx = i
             break
+    if window_start_idx is None:
+        # All bars are before args.start — use the most recent bar as baseline (0% window move)
+        window_start_idx = len(closes) - 1
     window_start_close = closes[window_start_idx]
     pct_window = round((last_close / window_start_close - 1) * 100, 2) if window_start_close else 0.0
 
     vol_20d_avg = sum(volumes[-21:-1]) / 20 if len(volumes) >= 21 else None
     vol_mult = round(volumes[-1] / vol_20d_avg, 2) if vol_20d_avg else None
 
-    hi_52w = max(closes[-252:]) if len(closes) >= 20 else max(closes)
-    lo_52w = min(closes[-252:]) if len(closes) >= 20 else min(closes)
+    hi_52w = max(closes[-252:])
+    lo_52w = min(closes[-252:])
     pos_52w = round((last_close - lo_52w) / (hi_52w - lo_52w), 2) if hi_52w != lo_52w else 0.5
 
     sma_50 = sum(closes[-50:]) / 50 if len(closes) >= 50 else None

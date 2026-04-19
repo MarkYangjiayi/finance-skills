@@ -41,10 +41,16 @@ def main():
         }))
         return
 
-    # SEC requires a user-agent identity. Use a reasonable default; user can override
-    # by setting EDGAR_IDENTITY env var.
     import os
-    set_identity(os.environ.get("EDGAR_IDENTITY", "watchlist-report user@example.com"))
+    identity = os.environ.get("EDGAR_IDENTITY")
+    if not identity:
+        print(json.dumps({
+            "ticker": args.ticker,
+            "error": "EDGAR_IDENTITY not set. SEC requires 'Name email@example.com' — set this env var.",
+            "filings": [],
+        }))
+        return
+    set_identity(identity)
 
     try:
         co = Company(bare)
@@ -71,9 +77,12 @@ def main():
             filed_raw = row.get("filing_date") or row.get("filingDate") or row.get("date")
             if filed_raw is None:
                 continue
-            filed = filed_raw if hasattr(filed_raw, "date") else datetime.strptime(str(filed_raw)[:10], "%Y-%m-%d").date()
-            if hasattr(filed, "date"):
-                filed = filed.date()
+            if isinstance(filed_raw, datetime):
+                filed = filed_raw.date()
+            elif hasattr(filed_raw, "date") and callable(filed_raw.date):
+                filed = filed_raw.date()
+            else:
+                filed = datetime.strptime(str(filed_raw)[:10], "%Y-%m-%d").date()
             if filed < since:
                 continue
             out.append({

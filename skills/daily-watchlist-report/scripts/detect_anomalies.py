@@ -34,8 +34,9 @@ def main():
     }
     try:
         th.update(json.loads(args.thresholds))
-    except Exception:
-        pass
+    except json.JSONDecodeError as e:
+        print(json.dumps({"error": f"invalid thresholds JSON: {e}"}))
+        sys.exit(1)
 
     flags = []
     if "error" in data:

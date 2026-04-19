@@ -53,7 +53,7 @@ def main():
 
     since = datetime.strptime(args.since, "%Y-%m-%d")
     items = []
-    for entry in feed.entries[: args.limit * 2]:  # overfetch then filter
+    for entry in feed.entries:
         pub = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             pub = datetime(*entry.published_parsed[:6])
