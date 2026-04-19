@@ -1,0 +1,53 @@
+# Daily Watchlist — edit this file to manage your tracked tickers.
+#
+# TWO SUPPORTED SHAPES:
+#
+# 1) Flat list (easy to start):
+#    tickers: [NVDA, AVGO, MU, ASML.AS, 000660.KS]
+#
+# 2) Clustered (recommended — lets the report be organized by investment theme):
+#    clusters:
+#      <cluster_name>:
+#        thesis: "One sentence: why you care about this theme"
+#        thresholds:          # optional per-cluster overrides
+#          price_move_pct: 3.0
+#          volume_multiple: 2.0
+#        tickers: [...]
+#
+# EODHD TICKER FORMAT:
+#   - US stocks: bare symbol is fine (NVDA → treated as NVDA.US)
+#   - Non-US: must be fully qualified, e.g. ASML.AS, 000660.KS, 7203.TO, BARC.LSE
+#
+# A ticker may appear in multiple clusters — that's fine, it'll be reported
+# under each one. Use the `uncategorized` bucket for names that don't fit a theme.
+
+# ============================================================
+# EXAMPLE — replace with your own tickers/clusters
+# ============================================================
+
+clusters:
+  ai_infra:
+    thesis: "Hyperscaler capex cycle; watching demand signals and supply constraints"
+    thresholds:
+      price_move_pct: 3.0
+      volume_multiple: 2.0
+    tickers: [NVDA, AVGO, VRT, SMCI, DELL, ANET]
+
+  dram_memory:
+    thesis: "DRAM/HBM pricing recovery driven by AI accelerator demand"
+    tickers: [MU, 000660.KS]   # Micron + SK Hynix
+
+  space:
+    thesis: "Launch cadence acceleration + rising defense space budgets"
+    tickers: [RKLB, ASTS, LMT]
+
+  clean_energy:
+    thesis: "Cost-curve-driven adoption, policy risk from changing subsidies"
+    tickers: [ENPH, FSLR, NEE]
+
+uncategorized:
+  tickers: [BRK-B, COST]
+
+# Optional: control the order clusters appear in the report.
+# If omitted, clusters are sorted alphabetically.
+cluster_order: [ai_infra, dram_memory, space, clean_energy, uncategorized]
